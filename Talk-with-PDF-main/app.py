@@ -3,7 +3,7 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from htmlTemplates import css, bot_template, user_template
@@ -28,7 +28,7 @@ def get_text_chunks(text):
 
 def get_vectorstore(text_chunks, openai_api_key):
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    vectorstore = Chroma.from_texts(texts=text_chunks, embedding=embeddings)
+    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
     return vectorstore
 
 def get_conversation_chain(vectorstore, openai_api_key):
