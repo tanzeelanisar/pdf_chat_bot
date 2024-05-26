@@ -1,118 +1,111 @@
 import streamlit as st
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from dotenv import load_dotenv
-from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain.chains.question_answering import load_qa_chain
+from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
+from langchain_core.prompts import PromptTemplate
+import google.generativeai as genai
 from htmlTemplates import css, bot_template, user_template
+import os
 
-def get_pdf_text(pdf_docs):
-    text = ""
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
+load_dotenv()
 
-def get_text_chunks(text):
-    text_splitter = CharacterTextSplitter(
-        separator="\n",
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
+def process_uploaded_file(uploaded_file):
+    with open(uploaded_file.name, 'wb') as f:
+        f.write(uploaded_file.getbuffer())
+    return uploaded_file.name
 
-def get_vectorstore(text_chunks, openai_api_key):
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    return vectorstore
+def generate_answer(question, response_placeholder):
+    if question and st.session_state.vector_index:
+        vector_index = st.session_state.vector_index
+        docs = vector_index.get_relevant_documents(question)
 
-def get_conversation_chain(vectorstore, openai_api_key):
-    llm = ChatOpenAI(openai_api_key=openai_api_key)
-    memory = ConversationBufferMemory(
-        memory_key='chat_history', return_messages=True)
-    conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=vectorstore.as_retriever(),
-        memory=memory
-    )
-    return conversation_chain
+        # Generate answer
+        prompt_template = """
+        Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
+        provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+        Context:\n {context}?\n
+        Question: \n{question}\n
 
-def handle_userinput(user_question, conversation_history):
-    response = st.session_state.conversation({'question': user_question})
+        Answer:
+        """
 
-    # Check for duplicates before appending to conversation history
-    new_messages = [message for message in response['chat_history'] if message not in conversation_history]
-    conversation_history.extend(new_messages)
+        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+        model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5, google_api_key=st.session_state.google_api_key)
+        chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+        response_dict = chain({"input_documents": docs, "question": question}, return_only_outputs=True)
+        response = response_dict["output_text"]
 
-    for i, message in enumerate(new_messages):
-        if i % 2 == 0:
-            st.write(user_template.replace(
-                "{{MSG}}", message.content), unsafe_allow_html=True)
-        else:
-            st.write(bot_template.replace(
-                "{{MSG}}", message.content), unsafe_allow_html=True)
+        # Update response
+        response_placeholder.write(user_template.replace("{{MSG}}", question), unsafe_allow_html=True)
+        response_placeholder.write(bot_template.replace("{{MSG}}", response), unsafe_allow_html=True)
 
+        # Add asked question and generated answer to history
+        st.session_state.question_history.append((question, response))
 
-def main():
-    load_dotenv()
-    st.set_page_config(page_title="DocConverse")
+# Initialize session state if not present
+if 'question_history' not in st.session_state:
+    st.session_state.question_history = []
+
+if 'document_processed' not in st.session_state:
+    st.session_state.document_processed = False
+
+if 'vector_index' not in st.session_state:
+    st.session_state.vector_index = None
+
+if 'upload_status' not in st.session_state:
+    st.session_state.upload_status = "No document uploaded yet."
+
+# Main content area
+st.markdown("<h1 style='text-align: center; color: white; padding: 10px; background-color: #002147;'>SmartDoc</h1>", unsafe_allow_html=True)
+st.markdown("---")
+
+# Create sidebar for key input, file uploader, and question history
+with st.sidebar:
+    google_api_key = st.text_input("Enter your OpenAI API Key:", type="password", key="google_api_key")
+    st.markdown("Don't have a Gemini API key? [Get it here](https://platform.openai.com/api-keys)")
+    uploaded_file = st.file_uploader("Upload your document (PDF)", type="pdf")
+
+    # Display the upload status above the chat history
+    st.markdown("**Upload Status:**")
+    st.markdown(f"{st.session_state.upload_status}")
+
+    # Question history expander
+    with st.expander("Chat History"):
+        for qa_pair in st.session_state.question_history:
+            question, answer = qa_pair
+            st.write(user_template.replace("{{MSG}}", question), unsafe_allow_html=True)
+            st.write(bot_template.replace("{{MSG}}", answer), unsafe_allow_html=True)
+
+if st.session_state.google_api_key:
+    # Set Google API key
+    genai.configure(api_key=st.session_state.google_api_key)
     st.write(css, unsafe_allow_html=True)
 
-    # Main content area
-    st.markdown("<h1 style='text-align: center; color: white; padding: 10px; background-color: #002147;'>SmartDoc</h1>", unsafe_allow_html=True)
-    st.markdown("---")  # Horizontal rule
+    if uploaded_file and not st.session_state.document_processed:
+        st.session_state.upload_status = "Uploading document..."
+        with st.spinner(st.session_state.upload_status):
+            file_path = process_uploaded_file(uploaded_file)
 
-    with st.sidebar:
-        openai_api_key = st.text_input("Enter your OpenAI API Key:", type="password")
-        st.markdown("Don't have an OpenAI API key? [Get it here](https://platform.openai.com/api-keys)")
-        
-        # Initialize chat_history
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
+            # Load and split text
+            loader = PyPDFDirectoryLoader(os.path.dirname(file_path))
+            data = loader.load_and_split()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=200)
+            context = "\n\n".join(str(p.page_content) for p in data)
+            texts = text_splitter.split_text(context)
 
-    uploaded_files = st.sidebar.file_uploader("Upload your PDF files", accept_multiple_files=True, type="pdf")
+            # Create embeddings and vector store
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=st.session_state.google_api_key)
+            st.session_state.vector_index = FAISS.from_texts(texts, embeddings).as_retriever()
+            st.session_state.document_processed = True
+            st.session_state.upload_status = "Document processed successfully!"
 
-    if uploaded_files:
-        process_files = st.sidebar.button("Process Uploaded Files")
-        if process_files:
-            progress_bar = st.sidebar.progress(0)
-            progress_text = st.sidebar.empty()
-            num_files = len(uploaded_files)
-            for i, pdf_file in enumerate(uploaded_files, 1):
-                progress_text.text(f"Processing file {i} of {num_files}")
-                try:
-                    get_pdf_text([pdf_file])
-                except Exception as e:
-                    st.error(f"An error occurred while processing {pdf_file.name}: {e}")
-                progress_bar.progress(i / num_files)
-                progress_text.text(f"Processed file {i} of {num_files}")
-
-            text = ""
-            for pdf_file in uploaded_files:
-                text += get_pdf_text([pdf_file])
-            text_chunks = get_text_chunks(text)
-            vectorstore = get_vectorstore(text_chunks, openai_api_key)
-            st.session_state.conversation = get_conversation_chain(vectorstore, openai_api_key)
-
-    user_question = st.text_input("Enter your Prompt:",placeholder = "Ask a question about your documents:")
-
-    if user_question:
-        handle_userinput(user_question, st.session_state.chat_history)
-
-    # Display conversation history with show/hide functionality
-    with st.sidebar.expander("Conversation History", expanded=False):
-        for i, message in enumerate(reversed(st.session_state.chat_history)):
-            if i % 2 == 0:
-                st.write(bot_template.replace(
-                    "{{MSG}}", message.content), unsafe_allow_html=True)
-            else:
-                st.write(user_template.replace(
-                    "{{MSG}}", message.content), unsafe_allow_html=True)
-
-if __name__ == '__main__':
-    main()
+# Display the question prompt if the document is ready
+if st.session_state.document_processed:
+    question_placeholder = st.empty()
+    response_placeholder = st.empty()
+    question = question_placeholder.text_input("Ask a question", key="question")
+    if question:
+        generate_answer(question, response_placeholder)
