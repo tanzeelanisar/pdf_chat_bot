@@ -68,10 +68,6 @@ with st.sidebar:
     st.markdown("Don't have a Gemini API key? [Get it here](https://aistudio.google.com/app/apikey))")
     uploaded_file = st.file_uploader("Upload your document (PDF)", type="pdf")
 
-    # Display the upload status above the chat history
-    st.markdown("**Upload Status:**")
-    st.markdown(f"{st.session_state.upload_status}")
-
     # Question history expander
     with st.expander("Chat History"):
         for qa_pair in st.session_state.question_history:
