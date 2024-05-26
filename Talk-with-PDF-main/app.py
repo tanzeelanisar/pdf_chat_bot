@@ -65,7 +65,7 @@ st.markdown("---")
 # Create sidebar for key input, file uploader, and question history
 with st.sidebar:
     google_api_key = st.text_input("Enter your OpenAI API Key:", type="password", key="google_api_key")
-    st.markdown("Don't have a Gemini API key? [Get it here](https://platform.openai.com/api-keys)")
+    st.markdown("Don't have a Gemini API key? [Get it here](https://aistudio.google.com/app/apikey))")
     uploaded_file = st.file_uploader("Upload your document (PDF)", type="pdf")
 
     # Display the upload status above the chat history
