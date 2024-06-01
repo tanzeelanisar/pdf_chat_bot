@@ -25,18 +25,27 @@ def generate_answer(question, response_placeholder):
         # Generate answer
         prompt_template = """
         Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
-        provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+        provided context, it should print same message everytime,"The answer is not in the provided context",don't provide the wrong answer\n\n
         Context:\n {context}?\n
         Question: \n{question}\n
-
         Answer:
         """
-
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
         model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5, google_api_key=st.session_state.google_api_key)
         chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
         response_dict = chain({"input_documents": docs, "question": question}, return_only_outputs=True)
         response = response_dict["output_text"]
+        
+
+        if "The answer is not in the provided context" in response or "I cannot answer this question" in response or "provided context does not mention anything" in response:
+            newmodel = genai.GenerativeModel(model_name="gemini-pro")
+            responsenew = newmodel.generate_content(question)
+            updatedres = responsenew._result.candidates[0].content.parts[0].text
+            response = "The answer is not in the provided context while this is Web based information:"+ updatedres
+
+        
+        # If the response does not contain sufficient information, use Gemini directly
+       
 
         # Update response
         response_placeholder.write(user_template.replace("{{MSG}}", question), unsafe_allow_html=True)
@@ -64,8 +73,8 @@ st.markdown("---")
 
 # Create sidebar for key input, file uploader, and question history
 with st.sidebar:
-    google_api_key = st.text_input("Enter your OpenAI API Key:", type="password", key="google_api_key")
-    st.markdown("Don't have a Gemini API key? [Get it here](https://aistudio.google.com/app/apikey))")
+    google_api_key = st.text_input("Enter your Google API Key:", type="password", key="google_api_key")
+    st.markdown("Don't have a Gemini API key? [Get it here](https://aistudio.google.com/app/apikey)")
     uploaded_file = st.file_uploader("Upload your document (PDF)", type="pdf")
 
     # Question history expander
