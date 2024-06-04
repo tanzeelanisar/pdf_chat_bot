@@ -7,16 +7,17 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 import google.generativeai as genai
 from htmlTemplates import css, bot_template, user_template
-import fitz  # PyMuPDF
+import pdfplumber  # Alternative to fitz
+from io import BytesIO  # Import BytesIO
 
 load_dotenv()
 st.set_page_config(page_title="SmartDoc", layout="wide")
 def extract_text_from_pdf(pdf_bytes):
     text = ""
-    pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-    for page_num in range(len(pdf_document)):
-        page = pdf_document.load_page(page_num)
-        text += page.get_text()
+    pdf_file = BytesIO(pdf_bytes)  # Wrap pdf_bytes in BytesIO
+    with pdfplumber.open(pdf_file) as pdf:  # Pass BytesIO object
+        for page in pdf.pages:
+            text += page.extract_text()
     return text
 def generate_answer(question, response_placeholder):
     if question and st.session_state.vector_index:
