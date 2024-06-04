@@ -12,3 +12,4 @@ pypdf==4.2.0
 rdflib==7.0.0 
 traits==6.3.2
 PyMuPDFb==1.24.3
+fitz==0.0.1.dev2
