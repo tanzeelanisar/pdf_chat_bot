@@ -2,21 +2,22 @@ import streamlit as st
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.chains.question_answering import load_qa_chain
-from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 import google.generativeai as genai
 from htmlTemplates import css, bot_template, user_template
-import os
+import fitz  # PyMuPDF
 
 load_dotenv()
-
-def process_uploaded_file(uploaded_file):
-    with open(uploaded_file.name, 'wb') as f:
-        f.write(uploaded_file.getbuffer())
-    return uploaded_file.name
-
+st.set_page_config(page_title="SmartDoc", layout="wide")
+def extract_text_from_pdf(pdf_bytes):
+    text = ""
+    pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    for page_num in range(len(pdf_document)):
+        page = pdf_document.load_page(page_num)
+        text += page.get_text()
+    return text
 def generate_answer(question, response_placeholder):
     if question and st.session_state.vector_index:
         vector_index = st.session_state.vector_index
@@ -31,15 +32,13 @@ def generate_answer(question, response_placeholder):
         Answer:
         """
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-        model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5, google_api_key=st.session_state.google_api_key)
-        chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+        chain = load_qa_chain(modelForRes, chain_type="stuff", prompt=prompt)
         response_dict = chain({"input_documents": docs, "question": question}, return_only_outputs=True)
         response = response_dict["output_text"]
         
 
         if "The answer is not in the provided context" in response or "I cannot answer this question" in response or "provided context does not mention anything" in response:
-            newmodel = genai.GenerativeModel(model_name="gemini-pro")
-            responsenew = newmodel.generate_content(question)
+            responsenew = newmodelWebResponse.generate_content(question)
             updatedres = responsenew._result.candidates[0].content.parts[0].text
             response = "The answer is not in the provided context while this is Web based information:"+ updatedres
 
@@ -68,6 +67,7 @@ if 'upload_status' not in st.session_state:
     st.session_state.upload_status = "No document uploaded yet."
 
 # Main content area
+
 st.markdown("<h1 style='text-align: center; color: white; padding: 10px; background-color: #002147;'>SmartDoc</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -88,18 +88,16 @@ if st.session_state.google_api_key:
     # Set Google API key
     genai.configure(api_key=st.session_state.google_api_key)
     st.write(css, unsafe_allow_html=True)
+    modelForRes = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.6, google_api_key=st.session_state.google_api_key)
+    newmodelWebResponse = genai.GenerativeModel(model_name="gemini-1.5-pro")
 
     if uploaded_file and not st.session_state.document_processed:
         st.session_state.upload_status = "Uploading document..."
         with st.spinner(st.session_state.upload_status):
-            file_path = process_uploaded_file(uploaded_file)
-
-            # Load and split text
-            loader = PyPDFDirectoryLoader(os.path.dirname(file_path))
-            data = loader.load_and_split()
+            file_content = uploaded_file.read()
+            extracted_text = extract_text_from_pdf(file_content)
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=200)
-            context = "\n\n".join(str(p.page_content) for p in data)
-            texts = text_splitter.split_text(context)
+            texts = text_splitter.split_text(extracted_text)
 
             # Create embeddings and vector store
             embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=st.session_state.google_api_key)
